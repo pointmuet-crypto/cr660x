@@ -51,6 +51,45 @@ info "更新并安装 feeds"
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
+# Repair upstream Netkeeper Makefiles for repeatable builds and PPP 2.5.1.
+# The upstream recipes use "mkdir ./builds", which fails when the directory
+# already exists, and look for the obsolete PKG_RELEASE_VERSION variable.
+info "修复闪讯上游 Makefile 的 builds 目录创建和 pppd 版本号检测"
+python3 - <<'PY'
+from pathlib import Path
+
+root = Path("feeds/netkeeper")
+source_makefiles = [
+    root / "netkeeper/src/Makefile",
+    root / "netkeeper-interception/src/Makefile",
+]
+package_makefiles = [
+    root / "netkeeper/Makefile",
+    root / "netkeeper-interception/Makefile",
+]
+
+for path in source_makefiles:
+    if not path.is_file():
+        raise SystemExit(f"[ERROR] 找不到闪讯源码 Makefile：{path}")
+    text = path.read_text()
+    text = text.replace("@mkdir ./builds", "@mkdir -p ./builds")
+    if "@mkdir -p ./builds" not in text:
+        raise SystemExit(f"[ERROR] 未能修复 builds 目录创建命令：{path}")
+    path.write_text(text)
+
+for path in package_makefiles:
+    if not path.is_file():
+        raise SystemExit(f"[ERROR] 找不到闪讯打包 Makefile：{path}")
+    text = path.read_text()
+    text = text.replace("grep 'PKG_RELEASE_VERSION:='", "grep '^PKG_VERSION:='")
+    if "grep 'PKG_RELEASE_VERSION:='" in text:
+        raise SystemExit(f"[ERROR] 未能更新 PPP 版本检测：{path}")
+    path.write_text(text)
+
+print("[INFO] Netkeeper Makefile fixes applied.")
+PY
+
+
 # UA3F stores its OpenWrt package recipe in package/UA3F/openwrt/Makefile.
 if [[ ! -d package/UA3F/.git ]]; then
   [[ ! -e package/UA3F ]] || die "package/UA3F 已存在但不是 UA3F Git 仓库，请检查目录。"
