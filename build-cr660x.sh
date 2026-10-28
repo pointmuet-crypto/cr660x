@@ -90,6 +90,47 @@ print("[INFO] Netkeeper Makefile fixes applied.")
 PY
 
 
+# PPP 2.5.1 no longer exposes the legacy Netkeeper variables/hooks through
+# pppd/pppd.h alone. Include the public PAP/CHAP hook declarations and declare
+# the pppd-private username/password globals used by the legacy plugin.
+info "修复 Netkeeper 与 PPP 2.5.1 的头文件/API 兼容性"
+python3 - <<'PY'
+from pathlib import Path
+
+root = Path("feeds/netkeeper")
+sources = [
+    root / "netkeeper/src/sxplugin.c",
+    root / "netkeeper/src/sxplugin4.c",
+]
+for path in sources:
+    if not path.is_file():
+        raise SystemExit(f"[ERROR] 找不到 Netkeeper 源文件：{path}")
+    text = path.read_text()
+    anchor = '#include "pppd/pppd.h"'
+    if anchor not in text:
+        raise SystemExit(f"[ERROR] 找不到 pppd.h include：{path}")
+    additions = (
+        '#include "pppd/upap.h"\n'
+        '#include "pppd/chap.h"'
+    )
+    if '#include "pppd/upap.h"' not in text:
+        text = text.replace(anchor, anchor + "\n" + additions, 1)
+    decls = (
+        '\n/* PPP 2.5.1 keeps these option globals in pppd-private.h; '
+        'the Netkeeper plugin needs the exported symbols. */\n'
+        'extern char user[MAXNAMELEN];\n'
+        'extern char passwd[MAXSECRETLEN];\n'
+    )
+    if 'extern char user[MAXNAMELEN];' not in text:
+        pos = text.find('#include "pppd/chap.h"')
+        if pos < 0:
+            raise SystemExit(f"[ERROR] 找不到 CHAP include：{path}")
+        end = pos + len('#include "pppd/chap.h"')
+        text = text[:end] + decls + text[end:]
+    path.write_text(text)
+    print(f"[INFO] patched {path}")
+PY
+
 # UA3F stores its OpenWrt package recipe in package/UA3F/openwrt/Makefile.
 if [[ ! -d package/UA3F/.git ]]; then
   [[ ! -e package/UA3F ]] || die "package/UA3F 已存在但不是 UA3F Git 仓库，请检查目录。"
