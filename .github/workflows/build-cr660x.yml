@@ -1,0 +1,66 @@
+name: Build ImmortalWrt CR660x + Netkeeper + UA3F
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: '并行编译任务数（标准 GitHub runner 建议先用 2）'
+        required: true
+        type: choice
+        options:
+          - '2'
+          - '3'
+          - '4'
+        default: '2'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Free disk space
+        shell: bash
+        run: |
+          set -euxo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/powershell /usr/local/.ghcup
+          sudo apt-get clean
+          sudo docker system prune --all --force || true
+          df -h /
+
+      - name: Checkout build configuration
+        uses: actions/checkout@v4
+
+      - name: Build firmware
+        shell: bash
+        env:
+          JOBS: ${{ inputs.jobs || '2' }}
+          WORKDIR: ${{ runner.temp }}/immortalwrt-cr660x-netkeeper-ua3f
+        run: |
+          set -o pipefail
+          bash ./build-cr660x.sh "$WORKDIR" 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Upload CR660x firmware
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cr660x-firmware-${{ github.run_number }}
+          path: ${{ runner.temp }}/immortalwrt-cr660x-netkeeper-ua3f/bin/targets/ramips/mt7621/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cr660x-build-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/build.log
+          if-no-files-found: ignore
+          retention-days: 7
